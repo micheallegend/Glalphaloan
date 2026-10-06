@@ -57,3 +57,13 @@ export interface Client {
   missedDaysCount?: number;
 }
 
+export interface NotificationItem {
+  id: string;
+  message: string;
+  agentName: string;
+  timestamp: number;
+  type: 'payment' | 'not_paid' | 'disbursal' | 'edit';
+  readBy: string[]; // List of agent names who read it
+}
+
+

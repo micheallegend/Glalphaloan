@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Agent } from '../types';
-import { LayoutDashboard, CalendarDays, Users, PlusCircle, History, LogOut, ShieldCheck, Settings } from 'lucide-react';
+import { Agent, NotificationItem } from '../types';
+import { LayoutDashboard, CalendarDays, Users, PlusCircle, History, LogOut, ShieldCheck, Settings, Bell, CheckCheck, X } from 'lucide-react';
 import { AgentSettingsModal } from './AgentSettingsModal';
 
 interface NavbarProps {
@@ -9,10 +9,23 @@ interface NavbarProps {
   setActiveTab: (tab: 'dashboard' | 'today' | 'clients' | 'new-loan' | 'logs') => void;
   onLogout: () => void;
   onUpdateAgent: (agent: Agent) => void;
+  notifications: NotificationItem[];
+  onMarkNotificationsAsRead: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentAgent, activeTab, setActiveTab, onLogout, onUpdateAgent }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  currentAgent,
+  activeTab,
+  setActiveTab,
+  onLogout,
+  onUpdateAgent,
+  notifications = [],
+  onMarkNotificationsAsRead,
+}) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
+
+  const unreadCount = notifications.filter((n) => !n.readBy.includes(currentAgent.name)).length;
 
   return (
     <>
@@ -35,8 +48,78 @@ export const Navbar: React.FC<NavbarProps> = ({ currentAgent, activeTab, setActi
               </div>
             </div>
 
-            {/* Logged in Agent Info & Profile Settings */}
+            {/* Notifications & Logged in Agent Info */}
             <div className="flex items-center space-x-3">
+              {/* Notification Icon */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowNotificationsDropdown(!showNotificationsDropdown)}
+                  className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-all cursor-pointer relative"
+                  title="Notifications Feed"
+                >
+                  <Bell className="w-5 h-5 text-amber-400" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900 animate-pulse">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notifications Dropdown */}
+                {showNotificationsDropdown && (
+                  <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-50">
+                    <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+                      <span className="font-bold text-white text-sm">Notifications Stream 🔔</span>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={() => {
+                            onMarkNotificationsAsRead();
+                          }}
+                          className="text-xs text-amber-400 hover:text-amber-300 font-bold flex items-center space-x-1 cursor-pointer"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          <span>Mark all read</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="divide-y divide-slate-800/80 max-h-96 overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-slate-500">
+                          No notifications recorded yet.
+                        </div>
+                      ) : (
+                        notifications.map((notif, index) => {
+                          const isUnread = !notif.readBy.includes(currentAgent.name);
+                          return (
+                            <div
+                              key={`${notif.id}-${index}`}
+                              className={`p-4 transition-all text-xs ${
+                                isUnread ? 'bg-amber-500/5 font-semibold text-slate-100' : 'text-slate-400'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="space-y-1">
+                                  <p className="text-slate-200">{notif.message}</p>
+                                  <p className="text-[10px] text-slate-500">
+                                    {new Date(notif.timestamp).toLocaleTimeString([], {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </p>
+                                </div>
+                                {isUnread && <div className="w-2 h-2 bg-amber-500 rounded-full flex-shrink-0 mt-1"></div>}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Agent Settings Button */}
               <button
                 onClick={() => setShowSettingsModal(true)}
                 className="flex items-center space-x-3 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 px-4 py-2 rounded-xl transition-all cursor-pointer group"

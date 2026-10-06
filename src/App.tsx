@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Agent, Client } from './types';
+import { Agent, Client, NotificationItem } from './types';
 import { INITIAL_CLIENTS } from './data/mockData';
 import { db } from './firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { SplashLoading } from './components/SplashLoading';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
@@ -19,6 +19,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
   const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'today' | 'clients' | 'new-loan' | 'logs'>('dashboard');
 
   useEffect(() => {
@@ -56,6 +57,26 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Sync notifications from Firestore in real-time
+  useEffect(() => {
+    const q = query(collection(db, 'notifications'), orderBy('timestamp', 'desc'), limit(50));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const firestoreNotifications: NotificationItem[] = [];
+        snapshot.forEach((docSnap) => {
+          firestoreNotifications.push(docSnap.data() as NotificationItem);
+        });
+        setNotifications(firestoreNotifications);
+      },
+      (error) => {
+        console.error('Firestore notifications snapshot error:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
   if (showSplash) {
     return <SplashLoading onFinish={() => setShowSplash(false)} />;
   }
@@ -71,6 +92,24 @@ export default function App() {
 
   const handleUpdateAgent = (updatedAgent: Agent) => {
     setCurrentAgent(updatedAgent);
+  };
+
+  const createNotification = async (message: string, type: 'payment' | 'not_paid' | 'disbursal' | 'edit') => {
+    if (!currentAgent) return;
+    const notifId = 'notif-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+    const newNotif: NotificationItem = {
+      id: notifId,
+      message,
+      agentName: currentAgent.name,
+      timestamp: Date.now(),
+      type,
+      readBy: [currentAgent.name],
+    };
+    try {
+      await setDoc(doc(db, 'notifications', notifId), newNotif);
+    } catch (e) {
+      console.error('Error creating notification:', e);
+    }
   };
 
   const handleRecordPayment = async (clientId: string, amount: number, notes?: string, isNotPaid?: boolean, collectionDate?: string) => {
@@ -107,22 +146,34 @@ export default function App() {
 
     try {
       await setDoc(doc(db, 'clients', clientId), updatedClient);
+
+      // Create live notifications
+      if (isNotPaid) {
+        await createNotification(`Agent ${currentAgent.name} marked ${targetClient.name} as NOT PAID (Yesterday balance recorded) for ${targetDate}`, 'not_paid');
+      } else {
+        await createNotification(`Agent ${currentAgent.name} collected K${amount} from ${targetClient.name} for ${targetDate}`, 'payment');
+      }
     } catch (error) {
       console.error('Error recording payment to Firestore:', error);
     }
   };
 
   const handleAddClient = async (newClient: Client) => {
+    if (!currentAgent) return;
     try {
       await setDoc(doc(db, 'clients', newClient.id), newClient);
+      const label = newClient.isExistingLoan ? 'existing business loan' : `K${newClient.principal} loan`;
+      await createNotification(`Agent ${currentAgent.name} disbursed ${label} to ${newClient.name}`, 'disbursal');
     } catch (error) {
       console.error('Error adding client to Firestore:', error);
     }
   };
 
   const handleUpdateClient = async (updatedClient: Client) => {
+    if (!currentAgent) return;
     try {
       await setDoc(doc(db, 'clients', updatedClient.id), updatedClient);
+      await createNotification(`Agent ${currentAgent.name} updated borrower details for ${updatedClient.name}`, 'edit');
     } catch (error) {
       console.error('Error updating client in Firestore:', error);
     }
@@ -133,6 +184,23 @@ export default function App() {
       await deleteDoc(doc(db, 'clients', clientId));
     } catch (error) {
       console.error('Error deleting client from Firestore:', error);
+    }
+  };
+
+  const handleMarkNotificationsAsRead = async () => {
+    if (!currentAgent) return;
+    try {
+      for (const notif of notifications) {
+        if (!notif.readBy.includes(currentAgent.name)) {
+          const updatedNotif = {
+            ...notif,
+            readBy: [...notif.readBy, currentAgent.name],
+          };
+          await setDoc(doc(db, 'notifications', notif.id), updatedNotif);
+        }
+      }
+    } catch (e) {
+      console.error('Error marking notifications as read:', e);
     }
   };
 
@@ -148,6 +216,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         onLogout={handleLogout}
         onUpdateAgent={handleUpdateAgent}
+        notifications={notifications}
+        onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
