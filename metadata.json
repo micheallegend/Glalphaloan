@@ -1,0 +1,7 @@
+{
+  "name": "G.L Alpha King Loans",
+  "description": "Daily Mon-Fri Field Collection Sheet and Loan Management System for Agents Micheal and Brian",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
