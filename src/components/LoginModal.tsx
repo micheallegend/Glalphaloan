@@ -4,11 +4,13 @@ import { Agent } from '../types';
 import { Shield, Lock, KeyRound, UserCheck, AlertCircle } from 'lucide-react';
 
 interface LoginModalProps {
+  agents?: Agent[];
   onLogin: (agent: Agent) => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ onLogin }) => {
-  const [selectedAgentId, setSelectedAgentId] = useState<string>(AGENTS[0].id);
+export const LoginModal: React.FC<LoginModalProps> = ({ agents = AGENTS, onLogin }) => {
+  const activeAgentsList = agents && agents.length > 0 ? agents : AGENTS;
+  const [selectedAgentId, setSelectedAgentId] = useState<string>(activeAgentsList[0].id);
   const [pin, setPin] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -17,7 +19,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLogin }) => {
     e.preventDefault();
     setError('');
 
-    const agent = AGENTS.find((a) => a.id === selectedAgentId);
+    const agent = activeAgentsList.find((a) => a.id === selectedAgentId);
     if (!agent) {
       setError('Please select a valid agent.');
       return;
@@ -60,26 +62,32 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLogin }) => {
               Select Authorized Agent
             </label>
             <div className="grid grid-cols-2 gap-3">
-              {AGENTS.map((agent) => {
+              {activeAgentsList.map((agent) => {
                 const isSelected = selectedAgentId === agent.id;
                 return (
                   <button
                     type="button"
-                    key={agent.id}
+                    key={`login-agent-${agent.id}`}
                     onClick={() => {
                       setSelectedAgentId(agent.id);
                       setPin('');
                       setPassword('');
                       setError('');
                     }}
-                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
                       isSelected
                         ? 'bg-amber-500/15 border-amber-500 text-white shadow-lg shadow-amber-500/10'
                         : 'bg-slate-800/50 border-slate-700 text-slate-300 hover:border-slate-600'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <UserCheck className={`w-5 h-5 ${isSelected ? 'text-amber-400' : 'text-slate-400'}`} />
+                      <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {agent.photoUrl ? (
+                          <img src={agent.photoUrl} alt={agent.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <UserCheck className={`w-4 h-4 ${isSelected ? 'text-amber-400' : 'text-slate-400'}`} />
+                        )}
+                      </div>
                       <span className="text-[10px] bg-slate-900 px-2 py-0.5 rounded text-slate-400 font-mono">
                         {agent.role}
                       </span>
@@ -118,7 +126,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLogin }) => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter Agent Password"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono text-center text-lg"
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-mono text-center text-lg"
               required
             />
           </div>

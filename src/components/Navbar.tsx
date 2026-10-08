@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import { Agent, NotificationItem } from '../types';
-import { LayoutDashboard, CalendarDays, Users, PlusCircle, History, LogOut, ShieldCheck, Settings, Bell, CheckCheck, X } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, Users, PlusCircle, History, LogOut, ShieldCheck, Settings, Bell, CheckCheck, X, FileSpreadsheet } from 'lucide-react';
 import { AgentSettingsModal } from './AgentSettingsModal';
 
 interface NavbarProps {
   currentAgent: Agent;
-  activeTab: 'dashboard' | 'today' | 'clients' | 'new-loan' | 'logs';
-  setActiveTab: (tab: 'dashboard' | 'today' | 'clients' | 'new-loan' | 'logs') => void;
+  activeTab: 'dashboard' | 'today' | 'records' | 'clients' | 'new-loan' | 'logs';
+  setActiveTab: (tab: 'dashboard' | 'today' | 'records' | 'clients' | 'new-loan' | 'logs') => void;
   onLogout: () => void;
   onUpdateAgent: (agent: Agent) => void;
   notifications: NotificationItem[];
   onMarkNotificationsAsRead: () => void;
+  notificationPermission?: NotificationPermission | 'unsupported';
+  onRequestPermission?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,6 +23,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onUpdateAgent,
   notifications = [],
   onMarkNotificationsAsRead,
+  notificationPermission = 'default',
+  onRequestPermission,
 }) => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showNotificationsDropdown, setShowNotificationsDropdown] = useState(false);
@@ -79,6 +83,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                         >
                           <CheckCheck className="w-3.5 h-3.5" />
                           <span>Mark all read</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Device Notification Status & Prompt */}
+                    <div className="px-4 py-2.5 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between text-xs">
+                      <span className="text-slate-400 font-medium">Device Push Alerts:</span>
+                      {notificationPermission === 'granted' ? (
+                        <span className="text-emerald-400 font-semibold flex items-center space-x-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                          <span>Active on this device</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={onRequestPermission}
+                          className="text-amber-400 hover:text-amber-300 font-bold underline cursor-pointer flex items-center space-x-1"
+                        >
+                          <span>🔔 Turn on alerts</span>
                         </button>
                       )}
                     </div>
@@ -177,6 +199,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <CalendarDays className="w-4 h-4" />
               <span>Today's Sheet</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('records')}
+              className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'records'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Record Keeping 📊</span>
             </button>
 
             <button

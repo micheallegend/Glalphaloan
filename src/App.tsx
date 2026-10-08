@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Agent, Client, NotificationItem } from './types';
-import { INITIAL_CLIENTS } from './data/mockData';
+import { AGENTS, INITIAL_CLIENTS } from './data/mockData';
 import { db } from './firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
 import { SplashLoading } from './components/SplashLoading';
@@ -11,26 +11,107 @@ import { TodaysSheet } from './components/TodaysSheet';
 import { AllClients } from './components/AllClients';
 import { NewLoanView } from './components/NewLoanView';
 import { AuditLogs } from './components/AuditLogs';
+import { RecordKeeping } from './components/RecordKeeping';
+import {
+  registerServiceWorker,
+  requestNotificationPermission,
+  getNotificationPermission,
+  sendDeviceNotification,
+} from './services/deviceNotification';
+import { Bell, X } from 'lucide-react';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState<boolean>(true);
-  const [currentAgent, setCurrentAgent] = useState<Agent | null>(() => {
-    const saved = localStorage.getItem('gl_loans_agent');
-    return saved ? JSON.parse(saved) : null;
+  const [currentAgent, setCurrentAgent] = useState<Agent | null>(null);
+  const [agents, setAgents] = useState<Agent[]>(() => {
+    const saved = localStorage.getItem('gl_loans_agents');
+    return saved ? JSON.parse(saved) : AGENTS;
   });
-  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'today' | 'clients' | 'new-loan' | 'logs'>('dashboard');
-
-  useEffect(() => {
-    if (currentAgent) {
-      localStorage.setItem('gl_loans_agent', JSON.stringify(currentAgent));
-    } else {
-      localStorage.removeItem('gl_loans_agent');
+  const [clients, setClients] = useState<Client[]>(() => {
+    try {
+      const saved = localStorage.getItem('gl_loans_clients');
+      return saved ? JSON.parse(saved) : INITIAL_CLIENTS;
+    } catch {
+      return INITIAL_CLIENTS;
     }
-  }, [currentAgent]);
+  });
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'today' | 'records' | 'clients' | 'new-loan' | 'logs'>('dashboard');
 
-  // Sync with Firestore in real-time
+  // Device Notifications State
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [showPermissionBanner, setShowPermissionBanner] = useState<boolean>(false);
+  const [toast, setToast] = useState<{ id: string; message: string; type: string } | null>(null);
+
+  const isInitialSnapshotRef = useRef<boolean>(true);
+  const seenNotifIdsRef = useRef<Set<string>>(new Set());
+
+  // Ask for notification permission and register Service Worker when the website is opened
+  useEffect(() => {
+    registerServiceWorker();
+
+    const perm = getNotificationPermission();
+    setNotificationPermission(perm);
+
+    // Ask for permission immediately when website is opened
+    if (perm === 'default') {
+      requestNotificationPermission().then((result) => {
+        setNotificationPermission(result);
+        if (result === 'default') {
+          // If browser prevented auto-popup without user click, show banner
+          setShowPermissionBanner(true);
+        }
+      });
+    }
+  }, []);
+
+  const handleRequestNotificationPermission = async () => {
+    const res = await requestNotificationPermission();
+    setNotificationPermission(res);
+    if (res === 'granted') {
+      setShowPermissionBanner(false);
+      sendDeviceNotification(
+        'G.L Alpha King Loans',
+        'Device notifications enabled! Alerts will appear whenever payments are recorded.'
+      );
+    }
+  };
+
+  const triggerToast = (id: string, message: string, type: string) => {
+    setToast({ id, message, type });
+    setTimeout(() => {
+      setToast((prev) => (prev?.id === id ? null : prev));
+    }, 6500);
+  };
+
+  // Sync agents with Firestore in real-time
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, 'agents'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const firestoreAgents: Agent[] = [];
+          snapshot.forEach((docSnap) => {
+            firestoreAgents.push(docSnap.data() as Agent);
+          });
+          setAgents(firestoreAgents);
+          localStorage.setItem('gl_loans_agents', JSON.stringify(firestoreAgents));
+        } else {
+          // Initialize agents in Firestore if empty
+          AGENTS.forEach(async (agent) => {
+            await setDoc(doc(db, 'agents', agent.id), agent);
+          });
+        }
+      },
+      (error) => {
+        console.error('Firestore agents snapshot error:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Sync clients with Firestore in real-time and persist
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, 'clients'),
@@ -41,12 +122,25 @@ export default function App() {
             firestoreClients.push(docSnap.data() as Client);
           });
           setClients(firestoreClients);
+          localStorage.setItem('gl_loans_clients', JSON.stringify(firestoreClients));
         } else {
-          // Seed initial clients if collection is empty
-          INITIAL_CLIENTS.forEach(async (client) => {
-            await setDoc(doc(db, 'clients', client.id), client);
-          });
+          // If Firestore is empty but we have local clients, sync local to Firestore
+          const saved = localStorage.getItem('gl_loans_clients');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed.length > 0) {
+                parsed.forEach(async (client: Client) => {
+                  await setDoc(doc(db, 'clients', client.id), client);
+                });
+                return;
+              }
+            } catch (e) {
+              console.error(e);
+            }
+          }
           setClients(INITIAL_CLIENTS);
+          localStorage.setItem('gl_loans_clients', JSON.stringify(INITIAL_CLIENTS));
         }
       },
       (error) => {
@@ -68,6 +162,27 @@ export default function App() {
           firestoreNotifications.push(docSnap.data() as NotificationItem);
         });
         setNotifications(firestoreNotifications);
+
+        // On first snapshot, register historic notifications so we don't spam past alerts
+        if (isInitialSnapshotRef.current) {
+          firestoreNotifications.forEach((n) => seenNotifIdsRef.current.add(n.id));
+          isInitialSnapshotRef.current = false;
+          return;
+        }
+
+        // On new doc changes added in real-time across all agents' devices
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const newNotif = change.doc.data() as NotificationItem;
+            if (!seenNotifIdsRef.current.has(newNotif.id)) {
+              seenNotifIdsRef.current.add(newNotif.id);
+              // Send native device push notification + audio chime
+              sendDeviceNotification('G.L Alpha King Loans', newNotif.message, newNotif.id);
+              // Trigger in-app live toast
+              triggerToast(newNotif.id, newNotif.message, newNotif.type);
+            }
+          }
+        });
       },
       (error) => {
         console.error('Firestore notifications snapshot error:', error);
@@ -87,11 +202,20 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentAgent(null);
-    localStorage.removeItem('gl_loans_agent');
   };
 
-  const handleUpdateAgent = (updatedAgent: Agent) => {
+  const handleUpdateAgent = async (updatedAgent: Agent) => {
     setCurrentAgent(updatedAgent);
+    const updatedAgentsList = agents.map((a) => (a.id === updatedAgent.id ? updatedAgent : a));
+    setAgents(updatedAgentsList);
+    localStorage.setItem('gl_loans_agents', JSON.stringify(updatedAgentsList));
+
+    try {
+      await setDoc(doc(db, 'agents', updatedAgent.id), updatedAgent);
+      await createNotification(`Agent ${updatedAgent.name} updated their security credentials & profile photo`, 'edit');
+    } catch (e) {
+      console.error('Error updating agent in Firestore:', e);
+    }
   };
 
   const createNotification = async (message: string, type: 'payment' | 'not_paid' | 'disbursal' | 'edit') => {
@@ -144,14 +268,23 @@ export default function App() {
       updatedAt: Date.now(),
     };
 
+    setClients((prev) => {
+      const next = prev.map((c) => (c.id === clientId ? updatedClient : c));
+      localStorage.setItem('gl_loans_clients', JSON.stringify(next));
+      return next;
+    });
+
     try {
       await setDoc(doc(db, 'clients', clientId), updatedClient);
 
       // Create live notifications
       if (isNotPaid) {
-        await createNotification(`Agent ${currentAgent.name} marked ${targetClient.name} as NOT PAID (Yesterday balance recorded) for ${targetDate}`, 'not_paid');
+        await createNotification(`${targetClient.name} not paid, Received by Agent ${currentAgent.name}`, 'not_paid');
+      } else if (amount < targetClient.dailyAmount) {
+        const bal = Math.max(0, targetClient.dailyAmount - amount);
+        await createNotification(`${targetClient.name} paid K${amount} then Balance K${bal}, Received by Agent ${currentAgent.name}`, 'payment');
       } else {
-        await createNotification(`Agent ${currentAgent.name} collected K${amount} from ${targetClient.name} for ${targetDate}`, 'payment');
+        await createNotification(`${targetClient.name} paid K${amount}, Received by Agent ${currentAgent.name}`, 'payment');
       }
     } catch (error) {
       console.error('Error recording payment to Firestore:', error);
@@ -160,6 +293,13 @@ export default function App() {
 
   const handleAddClient = async (newClient: Client) => {
     if (!currentAgent) return;
+
+    setClients((prev) => {
+      const next = [newClient, ...prev.filter((c) => c.id !== newClient.id)];
+      localStorage.setItem('gl_loans_clients', JSON.stringify(next));
+      return next;
+    });
+
     try {
       await setDoc(doc(db, 'clients', newClient.id), newClient);
       const label = newClient.isExistingLoan ? 'existing business loan' : `K${newClient.principal} loan`;
@@ -171,6 +311,13 @@ export default function App() {
 
   const handleUpdateClient = async (updatedClient: Client) => {
     if (!currentAgent) return;
+
+    setClients((prev) => {
+      const next = prev.map((c) => (c.id === updatedClient.id ? updatedClient : c));
+      localStorage.setItem('gl_loans_clients', JSON.stringify(next));
+      return next;
+    });
+
     try {
       await setDoc(doc(db, 'clients', updatedClient.id), updatedClient);
       await createNotification(`Agent ${currentAgent.name} updated borrower details for ${updatedClient.name}`, 'edit');
@@ -180,8 +327,20 @@ export default function App() {
   };
 
   const handleDeleteClient = async (clientId: string) => {
+    const clientToDelete = clients.find((c) => c.id === clientId);
+    const clientName = clientToDelete ? clientToDelete.name : 'client';
+
+    setClients((prev) => {
+      const next = prev.filter((c) => c.id !== clientId);
+      localStorage.setItem('gl_loans_clients', JSON.stringify(next));
+      return next;
+    });
+
     try {
       await deleteDoc(doc(db, 'clients', clientId));
+      if (currentAgent) {
+        await createNotification(`Agent ${currentAgent.name} deleted client "${clientName}" from the system`, 'edit');
+      }
     } catch (error) {
       console.error('Error deleting client from Firestore:', error);
     }
@@ -205,7 +364,7 @@ export default function App() {
   };
 
   if (!currentAgent) {
-    return <LoginModal onLogin={handleLogin} />;
+    return <LoginModal agents={agents} onLogin={handleLogin} />;
   }
 
   return (
@@ -218,7 +377,69 @@ export default function App() {
         onUpdateAgent={handleUpdateAgent}
         notifications={notifications}
         onMarkNotificationsAsRead={handleMarkNotificationsAsRead}
+        notificationPermission={notificationPermission}
+        onRequestPermission={handleRequestNotificationPermission}
       />
+
+      {/* Device Notification Permission Request Banner */}
+      {showPermissionBanner && notificationPermission !== 'granted' && (
+        <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 sm:px-8 py-3 text-xs flex flex-wrap items-center justify-between gap-3 shadow-inner">
+          <div className="flex items-center space-x-2.5">
+            <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 flex-shrink-0">
+              <Bell className="w-4 h-4 animate-bounce" />
+            </span>
+            <div>
+              <span className="font-bold text-white">Enable Device Notifications:</span> Receive instant push alerts directly on this phone or computer whenever any agent records payments or changes.
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleRequestNotificationPermission}
+              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+            >
+              Allow on this Device
+            </button>
+            <button
+              onClick={() => setShowPermissionBanner(false)}
+              className="text-slate-400 hover:text-white px-2 py-1 text-xs cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Toast Alert for Live Collections */}
+      {toast && (
+        <aside
+          aria-live="polite"
+          className="fixed top-24 right-4 z-50 max-w-sm sm:max-w-md w-full bg-slate-900/95 border-2 border-amber-500/70 rounded-2xl shadow-2xl shadow-amber-500/20 p-4 backdrop-blur-md transition-all animate-in fade-in slide-in-from-top-4"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 flex-shrink-0 mt-0.5">
+                <Bell className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                    Live Device Alert
+                  </span>
+                  <span className="text-[10px] text-slate-400">Just now</span>
+                </div>
+                <p className="text-sm font-bold text-white leading-snug">{toast.message}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setToast(null)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              aria-label="Close notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </aside>
+      )}
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'dashboard' && <Dashboard clients={clients} setActiveTab={setActiveTab} />}
@@ -227,6 +448,13 @@ export default function App() {
             clients={clients}
             currentAgent={currentAgent}
             onRecordPayment={handleRecordPayment}
+            onDeleteClient={handleDeleteClient}
+          />
+        )}
+        {activeTab === 'records' && (
+          <RecordKeeping
+            clients={clients}
+            currentAgent={currentAgent}
           />
         )}
         {activeTab === 'clients' && (

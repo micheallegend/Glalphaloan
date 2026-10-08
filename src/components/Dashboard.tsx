@@ -1,11 +1,11 @@
 import React from 'react';
 import { Client } from '../types';
-import { Banknote, Users, TrendingUp, Calendar, CheckCircle2, ShieldAlert, ArrowUpRight, PlusCircle, Award, AlertTriangle, TrendingDown } from 'lucide-react';
+import { Banknote, Users, TrendingUp, Calendar, CheckCircle2, ShieldAlert, ArrowUpRight, PlusCircle, Award, AlertTriangle, TrendingDown, FileSpreadsheet } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface DashboardProps {
   clients: Client[];
-  setActiveTab: (tab: 'dashboard' | 'today' | 'clients' | 'new-loan' | 'logs') => void;
+  setActiveTab: (tab: 'dashboard' | 'today' | 'records' | 'clients' | 'new-loan' | 'logs') => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ clients, setActiveTab }) => {
@@ -47,20 +47,54 @@ export const Dashboard: React.FC<DashboardProps> = ({ clients, setActiveTab }) =
 
   const chartData = getRecentDaysData();
 
-  // Clients who missed or didn't pay (Yesterday balance / arrears)
-  const missedPaymentsList = clients.flatMap((c) => {
-    const missed = (c.payments || []).filter((p) => p.isNotPaid);
-    const totalPaid = (c.payments || []).reduce((acc, p) => acc + (p.isNotPaid ? 0 : p.amount), 0);
-    const remainingBalance = Math.max(0, c.totalPayable - totalPaid);
+  interface ArrearItem {
+    clientId: string;
+    clientName: string;
+    businessType: string;
+    date: string;
+    notes?: string;
+    type: 'missed' | 'partial';
+    paidAmount: number;
+    dailyDue: number;
+    dailyBalance: number;
+    overallBalance: number;
+  }
 
-    return missed.map((m) => ({
-      clientId: c.id,
-      clientName: c.name,
-      businessType: c.businessType,
-      date: m.date,
-      notes: m.notes,
-      remainingBalance,
-    }));
+  // Clients who missed or didn't pay (Yesterday balance / arrears) or paid partial daily amount
+  const arrearsList: ArrearItem[] = [];
+  clients.forEach((c) => {
+    const totalPaid = (c.payments || []).reduce((acc, p) => acc + (p.isNotPaid ? 0 : p.amount), 0);
+    const overallBalance = Math.max(0, c.totalPayable - totalPaid);
+
+    (c.payments || []).forEach((p) => {
+      if (p.isNotPaid) {
+        arrearsList.push({
+          clientId: c.id,
+          clientName: c.name,
+          businessType: c.businessType,
+          date: p.date,
+          notes: p.notes,
+          type: 'missed',
+          paidAmount: 0,
+          dailyDue: c.dailyAmount,
+          dailyBalance: c.dailyAmount,
+          overallBalance,
+        });
+      } else if (p.amount > 0 && p.amount < c.dailyAmount) {
+        arrearsList.push({
+          clientId: c.id,
+          clientName: c.name,
+          businessType: c.businessType,
+          date: p.date,
+          notes: p.notes,
+          type: 'partial',
+          paidAmount: p.amount,
+          dailyDue: c.dailyAmount,
+          dailyBalance: Math.max(0, c.dailyAmount - p.amount),
+          overallBalance,
+        });
+      }
+    });
   });
 
   // Best Payers vs Low Performance evaluation
@@ -106,7 +140,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ clients, setActiveTab }) =
               className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-5 py-3 rounded-xl shadow-lg shadow-amber-500/20 transition-all flex items-center space-x-2 text-sm cursor-pointer"
             >
               <Calendar className="w-4 h-4" />
-              <span>Today's Collection Sheet</span>
+              <span>Today's Sheet</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('records')}
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 font-bold px-5 py-3 rounded-xl transition-all flex items-center space-x-2 text-sm cursor-pointer shadow-md"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-amber-400" />
+              <span>Record Keeping 📊</span>
             </button>
             <button
               onClick={() => setActiveTab('new-loan')}
@@ -216,37 +257,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ clients, setActiveTab }) =
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-white flex items-center space-x-2">
-                <AlertTriangle className="w-5 h-5 text-red-400" />
-                <span>Missed Payments & Yesterday Balance</span>
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                <span>Missed & Partial Arrears</span>
               </h3>
-              <span className="bg-red-500/15 text-red-400 text-xs px-2.5 py-0.5 rounded-full font-semibold">
-                {missedPaymentsList.length} Arrears
+              <span className="bg-amber-500/15 text-amber-400 text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                {arrearsList.length} Attention
               </span>
             </div>
-            <p className="text-xs text-slate-400 mb-4">Clients who missed or didn't pay their daily repayment with remaining balance:</p>
+            <p className="text-xs text-slate-400 mb-4">Borrowers who missed or made incomplete daily repayments:</p>
 
-            {missedPaymentsList.length === 0 ? (
+            {arrearsList.length === 0 ? (
               <div className="text-center py-10 text-slate-500 text-xs bg-slate-800/40 rounded-xl border border-slate-800">
                 No missed payments or arrears recorded! All clients are up to date.
               </div>
             ) : (
               <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                {missedPaymentsList.map((item, idx) => (
-                  <div key={`missed-${item.clientId}-${idx}`} className="bg-red-500/10 border border-red-500/20 rounded-xl p-3.5 flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-white text-sm">{item.clientName}</div>
-                      <div className="text-xs text-slate-400 flex items-center space-x-2 mt-0.5">
-                        <span>Date: <strong className="text-red-400">{item.date}</strong></span>
-                        <span>•</span>
-                        <span>{item.businessType}</span>
+                {arrearsList.map((item, idx) => {
+                  const isPartial = item.type === 'partial';
+
+                  return (
+                    <div
+                      key={`arrears-${item.clientId}-${item.date}-${idx}`}
+                      className={`border rounded-xl p-3.5 flex items-center justify-between ${
+                        isPartial
+                          ? 'bg-amber-500/10 border-amber-500/30'
+                          : 'bg-red-500/10 border-red-500/20'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-white text-sm">{item.clientName}</div>
+                        <div className="text-xs text-slate-400 flex items-center space-x-2 mt-0.5 flex-wrap">
+                          <span>Date: <strong className={isPartial ? 'text-amber-400' : 'text-red-400'}>{item.date}</strong></span>
+                          <span>•</span>
+                          <span>{item.businessType}</span>
+                        </div>
+                        {isPartial && (
+                          <div className="mt-1 text-xs text-amber-500 font-semibold">
+                            paid K{item.paidAmount} then Balance K{item.dailyBalance}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-slate-400">Total Loan Bal</div>
+                        <div className={`font-bold text-sm ${isPartial ? 'text-amber-500' : 'text-red-400'}`}>
+                          K{item.overallBalance}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-400">Remaining Balance</div>
-                      <div className="text-red-400 font-bold text-sm">K{item.remainingBalance}</div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

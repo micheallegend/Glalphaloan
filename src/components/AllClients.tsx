@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Client, Agent } from '../types';
-import { Users, Search, Filter, Phone, MapPin, Calendar, Edit3, Trash2, CheckCircle, ShieldCheck, Banknote, X } from 'lucide-react';
+import { Users, Search, Filter, Phone, MapPin, Calendar, Edit3, Trash2, CheckCircle, ShieldCheck, Banknote, X, AlertTriangle, KeyRound, Lock, ShieldAlert } from 'lucide-react';
 
 interface AllClientsProps {
   clients: Client[];
@@ -14,6 +14,13 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Completed' | 'Defaulted'>('All');
   const [viewingClient, setViewingClient] = useState<Client | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+
+  // Secure deletion modal state
+  const [deletingClient, setDeletingClient] = useState<Client | null>(null);
+  const [deletePin, setDeletePin] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   const filteredClients = clients.filter((c) => {
     const matchesSearch =
@@ -37,6 +44,36 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
 
     onUpdateClient(updated);
     setEditingClient(null);
+  };
+
+  const handleDeleteConfirm = (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError('');
+
+    if (!deletingClient) return;
+
+    // Validate current agent PIN and Password
+    if (deletePin.trim() !== currentAgent.pin.trim() || deletePassword.trim() !== currentAgent.password.trim()) {
+      setDeleteError(`Incorrect PIN or Password for Agent ${currentAgent.name}. Deletion failed.`);
+      return;
+    }
+
+    if (deleteConfirmText.trim().toLowerCase() !== 'yes') {
+      setDeleteError('Please type "yes" in the box to confirm deletion.');
+      return;
+    }
+
+    onDeleteClient(deletingClient.id);
+    setDeletingClient(null);
+    setDeletePin('');
+    setDeletePassword('');
+    setDeleteConfirmText('');
+    if (editingClient && editingClient.id === deletingClient.id) {
+      setEditingClient(null);
+    }
+    if (viewingClient && viewingClient.id === deletingClient.id) {
+      setViewingClient(null);
+    }
   };
 
   return (
@@ -165,18 +202,32 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
                         )}
                       </td>
 
-                      <td className="p-4 text-right space-x-2">
+                      <td className="p-4 text-right space-x-2 whitespace-nowrap">
                         <button
                           onClick={() => setViewingClient(client)}
-                          className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                          className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer"
                         >
                           History
                         </button>
                         <button
                           onClick={() => setEditingClient(client)}
-                          className="bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                          className="bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer"
                         >
                           Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeletingClient(client);
+                            setDeletePin('');
+                            setDeletePassword('');
+                            setDeleteConfirmText('');
+                            setDeleteError('');
+                          }}
+                          className="bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-red-400 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer inline-flex items-center space-x-1"
+                          title="Delete client (Requires PIN & Password)"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Delete</span>
                         </button>
                       </td>
                     </tr>
@@ -234,26 +285,58 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {viewingClient.payments.map((p, pIdx) => (
-                      <div key={`payment-${p.id}-${pIdx}`} className="bg-slate-800/60 border border-slate-700/60 p-3.5 rounded-xl flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-white text-sm">+K{p.amount}</div>
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            Date: {p.date} • Collected by <span className="text-amber-400 font-medium">{p.agentName}</span>
+                    {viewingClient.payments.map((p, pIdx) => {
+                      const isUnderpaid = !p.isNotPaid && p.amount > 0 && p.amount < viewingClient.dailyAmount;
+                      const dailyBalRemaining = Math.max(0, viewingClient.dailyAmount - p.amount);
+
+                      return (
+                        <div key={`payment-${p.id}-${pIdx}`} className="bg-slate-800/60 border border-slate-700/60 p-3.5 rounded-xl flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-sm">
+                              {p.isNotPaid ? (
+                                <span className="text-red-400">Not Paid (Yesterday Balance)</span>
+                              ) : isUnderpaid ? (
+                                <span className="text-amber-500 font-bold">
+                                  paid K{p.amount} then Balance K{dailyBalRemaining}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-400">+K{p.amount}</span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Date: {p.date} • Recorded by <span className="text-amber-400 font-medium">{p.agentName}</span>
+                              {isUnderpaid && (
+                                <span className="ml-2 text-amber-500/80 font-medium">(Daily Due: K{viewingClient.dailyAmount})</span>
+                              )}
+                            </div>
+                            {p.notes && <div className="text-[11px] text-slate-500 mt-1">{p.notes}</div>}
                           </div>
-                          {p.notes && <div className="text-[11px] text-slate-500 mt-1">{p.notes}</div>}
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            {new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
                         </div>
-                        <div className="text-[10px] text-slate-500 font-mono">
-                          {new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex justify-end">
+            <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setDeletingClient(viewingClient);
+                  setDeletePin('');
+                  setDeletePassword('');
+                  setDeleteConfirmText('');
+                  setDeleteError('');
+                }}
+                className="bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Borrower</span>
+              </button>
+
               <button
                 onClick={() => setViewingClient(null)}
                 className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer"
@@ -373,19 +456,139 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
                 />
               </div>
 
-              <div className="flex space-x-3 pt-4">
+              <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setEditingClient(null)}
-                  className="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-sm transition-all cursor-pointer"
+                  onClick={() => {
+                    setDeletingClient(editingClient);
+                    setDeletePin('');
+                    setDeletePassword('');
+                    setDeleteConfirmText('');
+                    setDeleteError('');
+                  }}
+                  className="text-red-400 hover:text-red-300 text-xs font-semibold flex items-center space-x-1.5 py-2 px-3 rounded-lg hover:bg-red-500/10 cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Client</span>
+                </button>
+
+                <div className="flex space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingClient(null)}
+                    className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold py-2 px-4 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2 px-4 rounded-xl text-xs shadow-lg shadow-amber-500/25 transition-all cursor-pointer"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Security Deletion Confirmation Modal */}
+      {deletingClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-red-500/40 rounded-2xl shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-950/80 via-slate-900 to-red-950/80 p-6 border-b border-red-500/20 text-center relative">
+              <div className="w-14 h-14 bg-red-500/15 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-3 text-red-400 shadow-lg shadow-red-500/20">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-black text-white">Confirm Client Deletion</h3>
+              <p className="text-xs text-red-400 font-medium mt-1">Security PIN & Password Required</p>
+            </div>
+
+            {/* Prompt Form */}
+            <form onSubmit={handleDeleteConfirm} className="p-6 space-y-4">
+              <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center">
+                <p className="text-sm font-bold text-white">
+                  Are you sure you want to delete <span className="text-amber-400 font-black">"{deletingClient.name}"</span>?
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  This action is permanent and will remove all loan balances, daily payment history, and business records for this client.
+                </p>
+              </div>
+
+              {deleteError && (
+                <div className="bg-red-500/20 border border-red-500/40 text-red-300 text-xs p-3 rounded-xl flex items-center space-x-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                  <span>{deleteError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center space-x-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Agent Security PIN ({currentAgent.name})</span>
+                </label>
+                <input
+                  type="password"
+                  value={deletePin}
+                  onChange={(e) => setDeletePin(e.target.value)}
+                  placeholder="Enter your Agent PIN"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono tracking-widest text-center text-sm focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center space-x-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Agent Password</span>
+                </label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Enter your Agent Password"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono text-center text-sm focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center space-x-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                  <span>Type <strong className="text-amber-400">"yes"</strong> to confirm:</span>
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="yes"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-bold text-center text-sm focus:outline-none focus:border-red-500"
+                  required
+                />
+              </div>
+
+              <div className="flex space-x-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeletingClient(null);
+                    setDeletePin('');
+                    setDeletePassword('');
+                    setDeleteConfirmText('');
+                    setDeleteError('');
+                  }}
+                  className="flex-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-semibold py-3 rounded-xl text-xs transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 rounded-xl text-sm shadow-lg shadow-amber-500/25 transition-all cursor-pointer"
+                  className="flex-1 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-black py-3 rounded-xl text-xs shadow-lg shadow-red-600/30 transition-all cursor-pointer flex items-center justify-center space-x-1.5"
                 >
-                  Save Changes
+                  <Trash2 className="w-4 h-4" />
+                  <span>Yes, Delete Client</span>
                 </button>
               </div>
             </form>
