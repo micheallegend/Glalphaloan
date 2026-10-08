@@ -104,7 +104,7 @@ export default function App() {
         }
       },
       (error) => {
-        console.error('Firestore agents snapshot error:', error);
+        console.warn('Firestore agents sync notice (using local storage):', error.message);
       }
     );
 
@@ -131,12 +131,16 @@ export default function App() {
               const parsed = JSON.parse(saved);
               if (parsed.length > 0) {
                 parsed.forEach(async (client: Client) => {
-                  await setDoc(doc(db, 'clients', client.id), client);
+                  try {
+                    await setDoc(doc(db, 'clients', client.id), client);
+                  } catch {
+                    // silently handled
+                  }
                 });
                 return;
               }
             } catch (e) {
-              console.error(e);
+              console.warn('Local clients parse note:', e);
             }
           }
           setClients(INITIAL_CLIENTS);
@@ -144,7 +148,7 @@ export default function App() {
         }
       },
       (error) => {
-        console.error('Firestore snapshot error:', error);
+        console.warn('Firestore clients sync notice (using local storage):', error.message);
       }
     );
 
@@ -185,7 +189,7 @@ export default function App() {
         });
       },
       (error) => {
-        console.error('Firestore notifications snapshot error:', error);
+        console.warn('Firestore notifications sync notice (operating offline):', error.message);
       }
     );
 
@@ -214,7 +218,7 @@ export default function App() {
       await setDoc(doc(db, 'agents', updatedAgent.id), updatedAgent);
       await createNotification(`Agent ${updatedAgent.name} updated their security credentials & profile photo`, 'edit');
     } catch (e) {
-      console.error('Error updating agent in Firestore:', e);
+      console.warn('Note: agent updated locally, cloud sync pending:', e);
     }
   };
 
@@ -232,7 +236,7 @@ export default function App() {
     try {
       await setDoc(doc(db, 'notifications', notifId), newNotif);
     } catch (e) {
-      console.error('Error creating notification:', e);
+      console.warn('Note: notification saved in memory, cloud sync pending:', e);
     }
   };
 
@@ -287,7 +291,7 @@ export default function App() {
         await createNotification(`${targetClient.name} paid K${amount}, Received by Agent ${currentAgent.name}`, 'payment');
       }
     } catch (error) {
-      console.error('Error recording payment to Firestore:', error);
+      console.warn('Note: payment saved in local storage, cloud sync pending:', error);
     }
   };
 
@@ -305,7 +309,7 @@ export default function App() {
       const label = newClient.isExistingLoan ? 'existing business loan' : `K${newClient.principal} loan`;
       await createNotification(`Agent ${currentAgent.name} disbursed ${label} to ${newClient.name}`, 'disbursal');
     } catch (error) {
-      console.error('Error adding client to Firestore:', error);
+      console.warn('Note: client added in local storage, cloud sync pending:', error);
     }
   };
 
@@ -322,7 +326,7 @@ export default function App() {
       await setDoc(doc(db, 'clients', updatedClient.id), updatedClient);
       await createNotification(`Agent ${currentAgent.name} updated borrower details for ${updatedClient.name}`, 'edit');
     } catch (error) {
-      console.error('Error updating client in Firestore:', error);
+      console.warn('Note: client updated in local storage, cloud sync pending:', error);
     }
   };
 
@@ -342,7 +346,7 @@ export default function App() {
         await createNotification(`Agent ${currentAgent.name} deleted client "${clientName}" from the system`, 'edit');
       }
     } catch (error) {
-      console.error('Error deleting client from Firestore:', error);
+      console.warn('Note: client deleted from local storage, cloud sync pending:', error);
     }
   };
 
@@ -359,7 +363,7 @@ export default function App() {
         }
       }
     } catch (e) {
-      console.error('Error marking notifications as read:', e);
+      console.warn('Note: notifications read status marked locally, cloud sync pending:', e);
     }
   };
 

@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "Agent": {
+      "title": "Agent",
+      "description": "System field agent or manager credentials and profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "pin": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string" },
+        "photoUrl": { "type": "string" }
+      },
+      "required": ["id", "name", "pin", "role"]
+    },
+    "Client": {
+      "title": "Client",
+      "description": "Borrower client details, loan terms, and payment ledger",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "businessType": { "type": "string" },
+        "principal": { "type": "number" },
+        "dailyAmount": { "type": "number" },
+        "totalDays": { "type": "number" },
+        "interest": { "type": "number" },
+        "totalPayable": { "type": "number" },
+        "startDate": { "type": "string" },
+        "status": { "type": "string" },
+        "createdByAgent": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedByAgent": { "type": "string" },
+        "updatedAt": { "type": "number" },
+        "payments": { "type": "array" },
+        "isExistingLoan": { "type": "boolean" },
+        "remainingBalance": { "type": "number" },
+        "finishDate": { "type": "string" },
+        "missedDaysCount": { "type": "number" }
+      },
+      "required": ["id", "name", "phone", "address", "dailyAmount", "totalPayable", "startDate", "status"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "Live alert item broadcasted to all logged-in agent devices",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "message": { "type": "string" },
+        "agentName": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "type": { "type": "string" },
+        "readBy": { "type": "array" }
+      },
+      "required": ["id", "message", "agentName", "timestamp", "type"]
+    }
+  },
+  "firestore": {
+    "/agents/{agentId}": {
+      "schema": "Agent",
+      "description": "Collection of authorized agents and credentials"
+    },
+    "/clients/{clientId}": {
+      "schema": "Client",
+      "description": "Collection of loan clients shared across all agent devices in real time"
+    },
+    "/notifications/{notifId}": {
+      "schema": "NotificationItem",
+      "description": "Live alerts generated when payments are made or clients are updated"
+    }
+  }
+}

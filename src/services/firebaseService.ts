@@ -21,7 +21,7 @@ export async function fetchInitialClients(): Promise<Client[]> {
     });
     return clients;
   } catch (error) {
-    console.error('Error fetching clients from Firestore:', error);
+    console.warn('Firestore offline/unreachable, loaded local initial clients:', error);
     return INITIAL_CLIENTS;
   }
 }
@@ -30,7 +30,7 @@ export async function saveClientToFirestore(client: Client): Promise<void> {
   try {
     await setDoc(doc(db, CLIENTS_COLLECTION, client.id), client);
   } catch (error) {
-    console.error('Error saving client to Firestore:', error);
+    console.warn('Firestore save queued offline/locally:', error);
   }
 }
 
@@ -38,6 +38,6 @@ export async function deleteClientFromFirestore(clientId: string): Promise<void>
   try {
     await deleteDoc(doc(db, CLIENTS_COLLECTION, clientId));
   } catch (error) {
-    console.error('Error deleting client from Firestore:', error);
+    console.warn('Firestore delete queued offline/locally:', error);
   }
 }

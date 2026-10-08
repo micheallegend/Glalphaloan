@@ -1,16 +1,33 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp, getApps } from "firebase/app";
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import firebaseConfig from "../firebase-applet-config.json";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBqdAxaPtJ3v49fw9-QBlumQbUhlsctrIU",
-  authDomain: "glalphaloan.firebaseapp.com",
-  projectId: "glalphaloan",
-  storageBucket: "glalphaloan.firebasestorage.app",
-  messagingSenderId: "682766231049",
-  appId: "1:682766231049:web:11c38178d6da13c63f6ad8"
-};
+// Initialize Firebase App
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+// Initialize Firestore with the provisioned databaseId and multi-tab persistent cache
+let firestoreDb;
+try {
+  firestoreDb = initializeFirestore(
+    app,
+    {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    },
+    firebaseConfig.firestoreDatabaseId
+  );
+} catch {
+  firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+}
+
+export const db = firestoreDb;
 export const auth = getAuth(app);
+
+

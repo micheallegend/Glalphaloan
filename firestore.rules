@@ -1,0 +1,24 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Agents collection
+    match /agents/{agentId} {
+      allow read, write: if true;
+    }
+
+    // Clients collection - shared live data across all agent devices
+    match /clients/{clientId} {
+      allow read, write: if true;
+    }
+
+    // Notifications collection - broadcasted to all logged-in devices
+    match /notifications/{notifId} {
+      allow read, write: if true;
+    }
+
+    // Default catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
