@@ -441,7 +441,7 @@ export default function App() {
         </aside>
       )}
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-24 lg:pb-8">
         {activeTab === 'dashboard' && <Dashboard clients={clients} setActiveTab={setActiveTab} />}
         {activeTab === 'today' && (
           <TodaysSheet
@@ -475,7 +475,7 @@ export default function App() {
         {activeTab === 'logs' && <AuditLogs clients={clients} />}
       </main>
 
-      <footer className="bg-slate-900 border-t border-slate-800 py-6 text-center text-xs text-slate-500">
+      <footer className="bg-slate-900 border-t border-slate-800 py-6 mb-14 lg:mb-0 text-center text-xs text-slate-500">
         G.L Alpha King Loans • Daily Mon–Fri Field Collection Sheet • Authorized Agents: Micheal Legend & Brian Nyimbili
       </footer>
     </div>
