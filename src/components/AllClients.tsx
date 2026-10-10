@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Client, Agent } from '../types';
+import { ClientWeeklyHistoryCard } from './ClientWeeklyHistoryCard';
 import { Users, Search, Filter, Phone, MapPin, Calendar, Edit3, Trash2, CheckCircle, ShieldCheck, Banknote, X, AlertTriangle, KeyRound, Lock, ShieldAlert } from 'lucide-react';
 
 interface AllClientsProps {
@@ -241,13 +242,13 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
 
       {/* Client History Modal */}
       {viewingClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-2xl bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-6 border-b border-slate-800 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-3 sm:p-4">
+          <div className="w-full max-w-4xl lg:max-w-5xl bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-5 sm:p-6 border-b border-slate-800 flex items-center justify-between">
               <div>
                 <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Borrower Profile & Audit History</div>
-                <h3 className="text-xl font-bold text-white mt-0.5">{viewingClient.name}</h3>
-                <p className="text-xs text-slate-400">{viewingClient.businessType} • {viewingClient.phone}</p>
+                <h3 className="text-xl sm:text-2xl font-black text-white mt-0.5">{viewingClient.name}</h3>
+                <p className="text-xs text-slate-400">{viewingClient.businessType} • {viewingClient.phone} • {viewingClient.address}</p>
               </div>
               <button
                 onClick={() => setViewingClient(null)}
@@ -257,14 +258,15 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
               </button>
             </div>
 
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-slate-800/50 p-4 rounded-xl border border-slate-700/60">
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 bg-slate-800/50 p-4 rounded-xl border border-slate-700/60">
                 <div>
                   <div className="text-[10px] uppercase text-slate-400 font-semibold">Principal Loan</div>
                   <div className="text-lg font-bold text-white">K{viewingClient.principal}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase text-slate-400 font-semibold">Daily Rate</div>
+                  <div className="text-[10px] uppercase text-slate-400 font-semibold">Daily Rate (Mon–Fri)</div>
                   <div className="text-lg font-bold text-amber-400">K{viewingClient.dailyAmount}</div>
                 </div>
                 <div>
@@ -277,22 +279,29 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
                 </div>
               </div>
 
-              <div>
-                <h4 className="font-bold text-white text-sm mb-3">Payment Collection History</h4>
+              {/* Weekly Collection Grid Card (Week 1 up to Ending Week, Mon - Fri) */}
+              <ClientWeeklyHistoryCard client={viewingClient} />
+
+              {/* Detailed Payment Collection History Log */}
+              <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 sm:p-5">
+                <h4 className="font-bold text-white text-sm mb-3 flex items-center space-x-2">
+                  <Calendar className="w-4 h-4 text-amber-400" />
+                  <span>Chronological Payment Entries Log</span>
+                </h4>
                 {(!viewingClient.payments || viewingClient.payments.length === 0) ? (
                   <div className="text-center py-8 text-slate-500 text-xs bg-slate-800/30 rounded-xl border border-slate-800">
-                    No payments recorded for this client yet.
+                    No payment transactions recorded for this client yet.
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                     {viewingClient.payments.map((p, pIdx) => {
                       const isUnderpaid = !p.isNotPaid && p.amount > 0 && p.amount < viewingClient.dailyAmount;
                       const dailyBalRemaining = Math.max(0, viewingClient.dailyAmount - p.amount);
 
                       return (
-                        <div key={`payment-${p.id}-${pIdx}`} className="bg-slate-800/60 border border-slate-700/60 p-3.5 rounded-xl flex items-center justify-between">
+                        <div key={`payment-${p.id}-${pIdx}`} className="bg-slate-800/60 border border-slate-700/60 p-3 rounded-xl flex items-center justify-between text-xs">
                           <div>
-                            <div className="font-bold text-sm">
+                            <div className="font-bold">
                               {p.isNotPaid ? (
                                 <span className="text-red-400">Not Paid (Yesterday Balance)</span>
                               ) : isUnderpaid ? (
@@ -300,16 +309,16 @@ export const AllClients: React.FC<AllClientsProps> = ({ clients, currentAgent, o
                                   paid K{p.amount} then Balance K{dailyBalRemaining}
                                 </span>
                               ) : (
-                                <span className="text-emerald-400">+K{p.amount}</span>
+                                <span className="text-emerald-400">+K{p.amount} Paid</span>
                               )}
                             </div>
-                            <div className="text-xs text-slate-400 mt-0.5">
+                            <div className="text-slate-400 mt-0.5">
                               Date: {p.date} • Recorded by <span className="text-amber-400 font-medium">{p.agentName}</span>
                               {isUnderpaid && (
                                 <span className="ml-2 text-amber-500/80 font-medium">(Daily Due: K{viewingClient.dailyAmount})</span>
                               )}
                             </div>
-                            {p.notes && <div className="text-[11px] text-slate-500 mt-1">{p.notes}</div>}
+                            {p.notes && <div className="text-[11px] text-slate-500 mt-1">"{p.notes}"</div>}
                           </div>
                           <div className="text-[10px] text-slate-500 font-mono">
                             {new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

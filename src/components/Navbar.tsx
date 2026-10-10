@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Agent, NotificationItem } from '../types';
+import { isWeekend, WEEKEND_NOTE } from '../utils/dateUtils';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -60,6 +61,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     };
   }, [mobileDrawerOpen]);
 
+  const isTodayWeekend = isWeekend(new Date());
+
   const navItems = [
     {
       id: 'dashboard' as const,
@@ -72,9 +75,13 @@ export const Navbar: React.FC<NavbarProps> = ({
       id: 'today' as const,
       label: "Today's Sheet",
       icon: CalendarDays,
-      badge: 'Live',
-      badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-      description: 'Mon–Fri daily field collection register',
+      badge: isTodayWeekend ? 'Weekend' : 'Live',
+      badgeColor: isTodayWeekend
+        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+        : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+      description: isTodayWeekend
+        ? `${WEEKEND_NOTE} • No field collection on Sat & Sun`
+        : 'Mon–Fri daily field collection register',
     },
     {
       id: 'records' as const,

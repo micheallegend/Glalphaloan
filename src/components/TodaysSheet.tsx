@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Client, Agent } from '../types';
+import { isWeekend, getDayOfWeekName, WEEKEND_NOTE } from '../utils/dateUtils';
+import { ClientWeeklyHistoryCard } from './ClientWeeklyHistoryCard';
 import {
   CalendarDays,
   CheckCircle2,
@@ -15,6 +17,9 @@ import {
   Lock,
   KeyRound,
   ShieldAlert,
+  Wallet,
+  Clock,
+  Coffee,
 } from 'lucide-react';
 
 interface TodaysSheetProps {
@@ -36,6 +41,7 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
   const [customAmount, setCustomAmount] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isNotPaidOption, setIsNotPaidOption] = useState<boolean>(false);
+  const [viewingHistoryClient, setViewingHistoryClient] = useState<Client | null>(null);
 
   // Secure deletion modal state
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
@@ -45,6 +51,21 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
   const [deleteError, setDeleteError] = useState('');
 
   const activeClients = clients.filter((c) => c.status === 'Active');
+
+  const isWeekendSelected = isWeekend(collectionDate);
+  const dayOfWeekName = getDayOfWeekName(collectionDate);
+
+  // Financial calculations for the selected collection date
+  const totalCollectedOnDate = activeClients.reduce((sum, client) => {
+    const dayPayments = (client.payments || []).filter((p) => p.date === collectionDate && !p.isNotPaid);
+    return sum + dayPayments.reduce((pSum, p) => pSum + (p.amount || 0), 0);
+  }, 0);
+
+  const totalExpectedDaily = isWeekendSelected ? 0 : activeClients.reduce((sum, client) => sum + client.dailyAmount, 0);
+  const borrowersPaidCount = activeClients.filter((client) => {
+    const dayPayment = (client.payments || []).find((p) => p.date === collectionDate && !p.isNotPaid && p.amount > 0);
+    return !!dayPayment;
+  }).length;
 
   const filteredClients = activeClients.filter(
     (c) =>
@@ -151,6 +172,120 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
         </div>
       </div>
 
+      {/* Weekend Notice Banner */}
+      {isWeekendSelected && (
+        <div className="bg-gradient-to-r from-amber-500/20 via-amber-600/10 to-amber-500/20 border-2 border-amber-500/50 rounded-2xl p-5 shadow-xl relative overflow-hidden animate-in fade-in">
+          <div className="flex items-start sm:items-center space-x-3.5">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 text-2xl font-black">
+              🏖️
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                <span className="bg-amber-500 text-slate-950 font-black text-xs px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                  {WEEKEND_NOTE}
+                </span>
+                <span className="text-white font-black text-base sm:text-lg">
+                  Weekend Notice ({dayOfWeekName}) — No Money Collections Today
+                </span>
+              </div>
+              <p className="text-amber-200/90 text-xs sm:text-sm mt-1.5 leading-relaxed">
+                On Saturdays and Sundays we do not collect money. Daily field collections are paused until Monday. On this day, money collected is officially marked as <strong className="text-white underline font-extrabold">{WEEKEND_NOTE}</strong> instead of zero.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Summary KPI Cards for Selected Date */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Money Collected Card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Money Collected Today</span>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isWeekendSelected ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+              <Wallet className="w-4 h-4" />
+            </div>
+          </div>
+          {isWeekendSelected && totalCollectedOnDate === 0 ? (
+            <div>
+              <div className="text-amber-400 font-black text-base sm:text-lg tracking-tight leading-snug break-words">
+                {WEEKEND_NOTE}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1 flex items-center space-x-1">
+                <span>{dayOfWeekName}</span>
+                <span>•</span>
+                <span>No collections today</span>
+              </div>
+            </div>
+          ) : isWeekendSelected && totalCollectedOnDate > 0 ? (
+            <div>
+              <div className="text-2xl font-black text-white">
+                K{totalCollectedOnDate.toLocaleString()}
+              </div>
+              <div className="text-[11px] text-amber-400 mt-1 font-semibold">
+                {WEEKEND_NOTE} (Voluntary collection)
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="text-3xl font-black text-emerald-400">
+                K{totalCollectedOnDate.toLocaleString()}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                Active day collection sum
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Expected Daily Target */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Expected Target</span>
+            <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          {isWeekendSelected ? (
+            <div>
+              <div className="text-slate-300 font-bold text-sm sm:text-base break-words">
+                {WEEKEND_NOTE}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                Mon–Fri schedule only • 0 required today
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="text-3xl font-black text-white">
+                K{totalExpectedDaily.toLocaleString()}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">
+                Daily due across {activeClients.length} active borrowers
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Attendance / Paid Borrowers */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Attendance Status</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+              <Calendar className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-white">
+              {borrowersPaidCount} / {activeClients.length}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              {isWeekendSelected ? `${WEEKEND_NOTE} (Weekend Rest)` : 'Borrowers recorded today'}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Clients List Table / Cards */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-lg overflow-hidden">
         <div className="p-5 border-b border-slate-800 flex items-center justify-between">
@@ -214,6 +349,12 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
                           <span>Not Paid / Yesterday Balance</span>
                         </span>
                       )}
+                      {isWeekendSelected && !hasPaidOnDate && !isMarkedNotPaidOnDate && (
+                        <span className="bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center space-x-1.5 shadow-sm">
+                          <Coffee className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{WEEKEND_NOTE}</span>
+                        </span>
+                      )}
                     </div>
 
                     <div className="text-xs text-slate-400 flex flex-wrap items-center gap-3">
@@ -227,9 +368,15 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
                         <span>{client.address}</span>
                       </span>
                       <span>•</span>
-                      <span className="text-amber-400 font-medium">
-                        Daily Due: K{client.dailyAmount}
-                      </span>
+                      {isWeekendSelected ? (
+                        <span className="text-amber-300 font-semibold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          Weekend: {WEEKEND_NOTE} (Mon–Fri Due: K{client.dailyAmount})
+                        </span>
+                      ) : (
+                        <span className="text-amber-400 font-medium">
+                          Daily Due: K{client.dailyAmount}
+                        </span>
+                      )}
                       {missedCount > 0 && (
                         <>
                           <span>•</span>
@@ -259,6 +406,15 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => setViewingHistoryClient(client)}
+                        className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center space-x-1"
+                        title={`View ${client.name}'s Weekly Collection Card`}
+                      >
+                        <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="hidden sm:inline">Card</span>
+                      </button>
+
                       <button
                         onClick={() => handleOpenPayModal(client, false)}
                         className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-500/20 cursor-pointer flex items-center space-x-1"
@@ -321,6 +477,15 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
             </div>
 
             <form onSubmit={handlePaySubmit} className="p-6 space-y-4">
+              {isWeekendSelected && (
+                <div className="bg-amber-500/15 border border-amber-500/40 rounded-xl p-3 text-xs text-amber-300 flex items-start space-x-2">
+                  <Coffee className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">{WEEKEND_NOTE} — Weekend Notice:</span> Saturdays & Sundays are non-collection days. If client voluntarily gave advance money today, enter it below.
+                  </div>
+                </div>
+              )}
+
               <div className="flex space-x-3 mb-2">
                 <button
                   type="button"
@@ -560,6 +725,39 @@ export const TodaysSheet: React.FC<TodaysSheetProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Client Weekly History Card Modal */}
+      {viewingHistoryClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-3 sm:p-4">
+          <div className="w-full max-w-4xl lg:max-w-5xl bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-5 sm:p-6 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Borrower Profile & Audit History</div>
+                <h3 className="text-xl sm:text-2xl font-black text-white mt-0.5">{viewingHistoryClient.name}</h3>
+                <p className="text-xs text-slate-400">{viewingHistoryClient.businessType} • {viewingHistoryClient.phone} • {viewingHistoryClient.address}</p>
+              </div>
+              <button
+                onClick={() => setViewingHistoryClient(null)}
+                className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+              <ClientWeeklyHistoryCard client={viewingHistoryClient} />
+            </div>
+
+            <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setViewingHistoryClient(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Client } from '../types';
-import { Banknote, Users, TrendingUp, Calendar, CheckCircle2, ShieldAlert, ArrowUpRight, PlusCircle, Award, AlertTriangle, TrendingDown, FileSpreadsheet } from 'lucide-react';
+import { isWeekend, getDayOfWeekName, WEEKEND_NOTE } from '../utils/dateUtils';
+import { Banknote, Users, TrendingUp, Calendar, CheckCircle2, ShieldAlert, ArrowUpRight, PlusCircle, Award, AlertTriangle, TrendingDown, FileSpreadsheet, Coffee } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface DashboardProps {
@@ -10,6 +11,8 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ clients, setActiveTab }) => {
   const todayStr = new Date().toISOString().split('T')[0];
+  const isTodayWeekend = isWeekend(todayStr);
+  const todayDayName = getDayOfWeekName(todayStr);
 
   const activeClients = clients.filter((c) => c.status === 'Active');
   const completedClients = clients.filter((c) => c.status === 'Completed');
@@ -160,20 +163,64 @@ export const Dashboard: React.FC<DashboardProps> = ({ clients, setActiveTab }) =
         </div>
       </div>
 
+      {/* Weekend Notice Banner */}
+      {isTodayWeekend && (
+        <div className="bg-gradient-to-r from-amber-500/20 via-amber-600/10 to-amber-500/20 border-2 border-amber-500/50 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden animate-in fade-in">
+          <div className="flex items-start sm:items-center space-x-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 text-xl font-black">
+              🏖️
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                <span className="bg-amber-500 text-slate-950 font-black text-xs px-3 py-0.5 rounded-full uppercase tracking-wider">
+                  {WEEKEND_NOTE}
+                </span>
+                <span className="text-white font-bold text-sm sm:text-base">
+                  Today is {todayDayName} (Weekend) — No Money Collected
+                </span>
+              </div>
+              <p className="text-amber-200/90 text-xs sm:text-sm mt-1">
+                On Saturdays and Sundays we do not collect money. Daily collections are paused until Monday. Money collected is marked as <strong className="text-white font-bold">{WEEKEND_NOTE}</strong> instead of zero.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 bg-emerald-500/10 rounded-xl border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isTodayWeekend ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'}`}>
               <Banknote className="w-5 h-5" />
             </div>
-            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full">
-              Today
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${isTodayWeekend ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+              {isTodayWeekend ? `${todayDayName} (Weekend)` : 'Today'}
             </span>
           </div>
           <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">Collected Today</div>
-          <div className="text-3xl font-black text-white mt-1">K{totalCollectedToday.toLocaleString()}</div>
-          <div className="text-xs text-slate-500 mt-2">{todaysPayments.length} collection entries today</div>
+          {isTodayWeekend && totalCollectedToday === 0 ? (
+            <div>
+              <div className="text-base sm:text-lg font-black text-amber-400 mt-1 break-words leading-tight">
+                {WEEKEND_NOTE}
+              </div>
+              <div className="text-xs text-slate-400 mt-2">
+                Saturday / Sunday • No money collected
+              </div>
+            </div>
+          ) : isTodayWeekend && totalCollectedToday > 0 ? (
+            <div>
+              <div className="text-3xl font-black text-white mt-1">K{totalCollectedToday.toLocaleString()}</div>
+              <div className="text-xs text-amber-400 mt-2 font-semibold">
+                {WEEKEND_NOTE} (Voluntary collection)
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="text-3xl font-black text-white mt-1">K{totalCollectedToday.toLocaleString()}</div>
+              <div className="text-xs text-slate-500 mt-2">{todaysPayments.length} collection entries today</div>
+            </div>
+          )}
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">

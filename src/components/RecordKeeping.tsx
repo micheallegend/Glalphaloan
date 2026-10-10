@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Client, Agent, PaymentRecord } from '../types';
+import { isWeekend, getDayOfWeekName, WEEKEND_NOTE } from '../utils/dateUtils';
+import { ClientWeeklyHistoryCard } from './ClientWeeklyHistoryCard';
 import {
   CalendarDays,
   Calendar,
@@ -24,7 +26,9 @@ import {
   User,
   Phone,
   Building,
-  DollarSign
+  DollarSign,
+  Coffee,
+  X,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -43,6 +47,7 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
+  const [viewingWeeklyClient, setViewingWeeklyClient] = useState<Client | null>(null);
 
   // Hidden/printable container ref for high-quality export
   const reportPrintRef = useRef<HTMLDivElement>(null);
@@ -78,6 +83,9 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
     setSelectedDate(cur.toISOString().split('T')[0]);
   };
 
+  const isWeekendSelected = isWeekend(selectedDate);
+  const dayOfWeekName = getDayOfWeekName(selectedDate);
+
   // Compile detailed information for each client for the selected date
   const dayRecords = useMemo(() => {
     return clients.map((client) => {
@@ -90,11 +98,19 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
 
       // Check if client had started loan on or before this date
       const loanStarted = !client.startDate || client.startDate <= selectedDate;
-      const expectedDue = loanStarted ? client.dailyAmount : 0;
+      const expectedDue = isWeekendSelected ? 0 : (loanStarted ? client.dailyAmount : 0);
 
-      let paymentStatus: 'full' | 'partial' | 'unpaid' | 'not_due';
+      let paymentStatus: 'full' | 'partial' | 'unpaid' | 'not_due' | 'weekend_off';
       if (!loanStarted) {
         paymentStatus = 'not_due';
+      } else if (isWeekendSelected) {
+        if (totalPaidOnDate > 0) {
+          paymentStatus = 'full';
+        } else if (isMarkedNotPaid) {
+          paymentStatus = 'unpaid';
+        } else {
+          paymentStatus = 'weekend_off';
+        }
       } else if (totalPaidOnDate >= expectedDue && expectedDue > 0) {
         paymentStatus = 'full';
       } else if (totalPaidOnDate > 0 && totalPaidOnDate < expectedDue) {
@@ -132,7 +148,7 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
         remainingLoanBalance,
       };
     });
-  }, [clients, selectedDate]);
+  }, [clients, selectedDate, isWeekendSelected]);
 
   // Aggregate statistics for selected date
   const summaryStats = useMemo(() => {
@@ -141,13 +157,16 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
     let fullPaidCount = 0;
     let partialPaidCount = 0;
     let unpaidCount = 0;
+    let weekendOffCount = 0;
     let totalActiveBorrowers = 0;
     const agentBreakdown: Record<string, { collected: number; count: number }> = {};
 
     dayRecords.forEach((record) => {
-      if (record.expectedDue > 0) {
+      if (record.paymentStatus !== 'not_due') {
         totalActiveBorrowers += 1;
-        totalExpected += record.expectedDue;
+        if (!isWeekendSelected && record.expectedDue > 0) {
+          totalExpected += record.expectedDue;
+        }
       }
       totalCollected += record.totalPaidOnDate;
 
@@ -157,6 +176,8 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
         partialPaidCount += 1;
       } else if (record.paymentStatus === 'unpaid') {
         unpaidCount += 1;
+      } else if (record.paymentStatus === 'weekend_off') {
+        weekendOffCount += 1;
       }
 
       // Track by agent
@@ -170,8 +191,10 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
       });
     });
 
-    const collectionRate = totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
-    const dayBalance = Math.max(0, totalExpected - totalCollected);
+    const collectionRate = isWeekendSelected
+      ? 100
+      : (totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0);
+    const dayBalance = isWeekendSelected ? 0 : Math.max(0, totalExpected - totalCollected);
 
     return {
       totalCollected,
@@ -181,10 +204,13 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
       fullPaidCount,
       partialPaidCount,
       unpaidCount,
+      weekendOffCount,
       totalActiveBorrowers,
       agentBreakdown,
+      isWeekend: isWeekendSelected,
+      dayOfWeekName,
     };
-  }, [dayRecords]);
+  }, [dayRecords, isWeekendSelected, dayOfWeekName]);
 
   // Filtered day records based on search and filters
   const filteredRecords = useMemo(() => {
@@ -222,7 +248,8 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
 
   // Historical summary for past days (multi-day archive list)
   const historicalDaysOverview = useMemo(() => {
-    return allRecordedDates.slice(0, 15).map((date) => {
+    return allRecordedDates.slice(0, 20).map((date) => {
+      const isDateWeekend = isWeekend(date);
       let collected = 0;
       let expected = 0;
       let paidCount = 0;
@@ -233,7 +260,7 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
         const amt = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
         collected += amt;
 
-        if (!c.startDate || c.startDate <= date) {
+        if (!isDateWeekend && (!c.startDate || c.startDate <= date)) {
           expected += c.dailyAmount;
           if (amt >= c.dailyAmount) {
             paidCount += 1;
@@ -245,11 +272,12 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
 
       return {
         date,
+        isWeekend: isDateWeekend,
         collected,
         expected,
         paidCount,
         unpaidCount,
-        rate: expected > 0 ? Math.round((collected / expected) * 100) : 0,
+        rate: isDateWeekend ? 100 : (expected > 0 ? Math.round((collected / expected) * 100) : 0),
       };
     });
   }, [allRecordedDates, clients]);
@@ -453,6 +481,28 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
             <span>{exportSuccessMessage}</span>
           </div>
         )}
+
+        {/* Weekend Notice Banner */}
+        {isWeekendSelected && (
+          <div className="mt-5 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-600/10 to-amber-500/20 border-2 border-amber-500/50 text-amber-200 flex items-start sm:items-center space-x-3.5 shadow-xl animate-in fade-in">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 text-2xl font-black">
+              🏖️
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                <span className="bg-amber-500 text-slate-950 font-black text-xs px-3 py-1 rounded-full uppercase tracking-wider shadow-sm">
+                  {WEEKEND_NOTE}
+                </span>
+                <span className="text-white font-bold text-sm sm:text-base">
+                  Weekend Notice ({dayOfWeekName}) — No Money Collected
+                </span>
+              </div>
+              <p className="text-amber-200/90 text-xs sm:text-sm mt-1.5 leading-relaxed">
+                On Saturdays and Sundays we do not collect money. Money collected on this day is officially marked as <strong className="text-white underline font-extrabold">{WEEKEND_NOTE}</strong> instead of zero.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Main KPI Financial Summary Cards for the Chosen Date */}
@@ -461,19 +511,41 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Collected on Day</span>
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isWeekendSelected ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400'}`}>
               <Wallet className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-3xl font-black text-emerald-400 tracking-tight">
-              K{summaryStats.totalCollected.toLocaleString()}
-            </div>
-            <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
-              <span>Performance:</span>
-              <strong className="text-emerald-400">{summaryStats.collectionRate}%</strong>
-              <span>of expected</span>
-            </div>
+            {isWeekendSelected && summaryStats.totalCollected === 0 ? (
+              <div>
+                <div className="text-base sm:text-lg font-black text-amber-400 tracking-tight leading-snug break-words">
+                  {WEEKEND_NOTE}
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
+                  <span>Weekend ({dayOfWeekName}) • No money collected</span>
+                </div>
+              </div>
+            ) : isWeekendSelected && summaryStats.totalCollected > 0 ? (
+              <div>
+                <div className="text-3xl font-black text-white tracking-tight">
+                  K{summaryStats.totalCollected.toLocaleString()}
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-amber-400 font-semibold">
+                  <span>{WEEKEND_NOTE} (Voluntary)</span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-3xl font-black text-emerald-400 tracking-tight">
+                  K{summaryStats.totalCollected.toLocaleString()}
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
+                  <span>Performance:</span>
+                  <strong className="text-emerald-400">{summaryStats.collectionRate}%</strong>
+                  <span>of expected</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -486,13 +558,26 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
             </div>
           </div>
           <div className="mt-3">
-            <div className="text-3xl font-black text-white tracking-tight">
-              K{summaryStats.totalExpected.toLocaleString()}
-            </div>
-            <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
-              <span>Required from:</span>
-              <strong className="text-amber-400">{summaryStats.totalActiveBorrowers} borrowers</strong>
-            </div>
+            {isWeekendSelected ? (
+              <div>
+                <div className="text-base sm:text-lg font-black text-slate-300 tracking-tight leading-snug break-words">
+                  {WEEKEND_NOTE}
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
+                  <span>Mon–Fri schedule • 0 due today</span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-3xl font-black text-white tracking-tight">
+                  K{summaryStats.totalExpected.toLocaleString()}
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
+                  <span>Required from:</span>
+                  <strong className="text-amber-400">{summaryStats.totalActiveBorrowers} borrowers</strong>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -505,12 +590,25 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
             </div>
           </div>
           <div className="mt-3">
-            <div className={`text-3xl font-black tracking-tight ${summaryStats.dayBalance > 0 ? 'text-amber-500' : 'text-emerald-400'}`}>
-              K{summaryStats.dayBalance.toLocaleString()}
-            </div>
-            <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
-              <span>Unpaid / partial deficit</span>
-            </div>
+            {isWeekendSelected ? (
+              <div>
+                <div className="text-3xl font-black text-emerald-400 tracking-tight">
+                  K0
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
+                  <span>{WEEKEND_NOTE} (No weekend arrears)</span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className={`text-3xl font-black tracking-tight ${summaryStats.dayBalance > 0 ? 'text-amber-500' : 'text-emerald-400'}`}>
+                  K{summaryStats.dayBalance.toLocaleString()}
+                </div>
+                <div className="flex items-center space-x-2 mt-1 text-xs text-slate-400">
+                  <span>Unpaid / partial deficit</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -522,20 +620,31 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between text-xs">
-            <div>
-              <div className="text-emerald-400 font-black text-xl">{summaryStats.fullPaidCount}</div>
-              <div className="text-slate-400 text-[11px]">Paid Full</div>
+          {isWeekendSelected ? (
+            <div className="mt-3">
+              <div className="text-sm font-bold text-amber-400 leading-snug">
+                {WEEKEND_NOTE}
+              </div>
+              <div className="text-xs text-slate-400 mt-1">
+                Weekend Rest Day ({summaryStats.weekendOffCount} borrowers off)
+              </div>
             </div>
-            <div className="border-l border-slate-800 pl-3">
-              <div className="text-amber-500 font-black text-xl">{summaryStats.partialPaidCount}</div>
-              <div className="text-slate-400 text-[11px]">Partial Paid</div>
+          ) : (
+            <div className="mt-3 flex items-center justify-between text-xs">
+              <div>
+                <div className="text-emerald-400 font-black text-xl">{summaryStats.fullPaidCount}</div>
+                <div className="text-slate-400 text-[11px]">Paid Full</div>
+              </div>
+              <div className="border-l border-slate-800 pl-3">
+                <div className="text-amber-500 font-black text-xl">{summaryStats.partialPaidCount}</div>
+                <div className="text-slate-400 text-[11px]">Partial Paid</div>
+              </div>
+              <div className="border-l border-slate-800 pl-3">
+                <div className="text-red-400 font-black text-xl">{summaryStats.unpaidCount}</div>
+                <div className="text-slate-400 text-[11px]">Not Paid</div>
+              </div>
             </div>
-            <div className="border-l border-slate-800 pl-3">
-              <div className="text-red-400 font-black text-xl">{summaryStats.unpaidCount}</div>
-              <div className="text-slate-400 text-[11px]">Not Paid</div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -706,6 +815,14 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                           <span>Not Paid</span>
                         </span>
                       )}
+
+                      {/* Weekend Off Badge */}
+                      {paymentStatus === 'weekend_off' && (
+                        <span className="bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center space-x-1.5 shadow-sm">
+                          <Coffee className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{WEEKEND_NOTE}</span>
+                        </span>
+                      )}
                     </div>
 
                     <div className="text-xs text-slate-400 flex flex-wrap items-center gap-3">
@@ -716,9 +833,15 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                       <span>•</span>
                       <span>{client.address}</span>
                       <span>•</span>
-                      <span className="text-amber-400 font-semibold">
-                        Daily Requirement: K{expectedDue}
-                      </span>
+                      {isWeekendSelected ? (
+                        <span className="text-amber-300 font-semibold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          Weekend: {WEEKEND_NOTE} (Mon–Fri Due: K{client.dailyAmount})
+                        </span>
+                      ) : (
+                        <span className="text-amber-400 font-semibold">
+                          Daily Requirement: K{expectedDue}
+                        </span>
+                      )}
                       {notes && (
                         <>
                           <span>•</span>
@@ -737,11 +860,23 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                       <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
                         Paid on {selectedDate}
                       </div>
-                      <div className="text-lg font-black text-white">
-                        K{totalPaidOnDate}
-                      </div>
+                      {isWeekendSelected && totalPaidOnDate === 0 ? (
+                        <div className="text-xs font-bold text-amber-400 py-1">
+                          {WEEKEND_NOTE}
+                        </div>
+                      ) : (
+                        <div className="text-lg font-black text-white">
+                          K{totalPaidOnDate}
+                        </div>
+                      )}
                       <div className="text-[10px] text-slate-500">
-                        {paymentStatus === 'full' ? 'Complete' : paymentStatus === 'partial' ? `Short by K${balanceRemainingForDay}` : 'K0 collected'}
+                        {isWeekendSelected && totalPaidOnDate === 0
+                          ? 'Weekend Rest Day'
+                          : paymentStatus === 'full'
+                          ? 'Complete'
+                          : paymentStatus === 'partial'
+                          ? `Short by K${balanceRemainingForDay}`
+                          : 'K0 collected'}
                       </div>
                     </div>
 
@@ -770,6 +905,18 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                       <div className="text-[10px] text-slate-500">
                         Rem: K{record.remainingLoanBalance}
                       </div>
+                    </div>
+
+                    {/* Weekly Grid Card Button */}
+                    <div className="pl-1">
+                      <button
+                        onClick={() => setViewingWeeklyClient(client)}
+                        className="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center space-x-1.5 shadow-sm"
+                        title={`View ${client.name}'s Weekly Loan Card`}
+                      >
+                        <CalendarDays className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="hidden sm:inline">Weekly Card</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -827,22 +974,52 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                         </span>
                       )}
                     </td>
-                    <td className="py-3.5 px-4 text-slate-300">K{hist.expected}</td>
-                    <td className="py-3.5 px-4 font-black text-emerald-400">K{hist.collected}</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-white">{hist.rate}%</span>
-                        <div className="w-16 bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                          <div
-                            className="bg-amber-400 h-full rounded-full"
-                            style={{ width: `${Math.min(100, hist.rate)}%` }}
-                          ></div>
-                        </div>
-                      </div>
+                    <td className="py-3.5 px-4 text-slate-300">
+                      {hist.isWeekend ? (
+                        <span className="text-slate-400 font-semibold">{WEEKEND_NOTE}</span>
+                      ) : (
+                        `K${hist.expected}`
+                      )}
                     </td>
-                    <td className="py-3.5 px-4 text-emerald-400 font-bold">{hist.paidCount} clients</td>
-                    <td className="py-3.5 px-4 text-red-400 font-bold">
-                      {shortfall > 0 ? `K${shortfall} (${hist.unpaidCount} unpaid)` : 'Nil (100% Cleared)'}
+                    <td className="py-3.5 px-4 font-black">
+                      {hist.isWeekend && hist.collected === 0 ? (
+                        <span className="text-amber-400 font-bold">{WEEKEND_NOTE}</span>
+                      ) : hist.isWeekend && hist.collected > 0 ? (
+                        <span className="text-emerald-400 font-bold">K{hist.collected} <span className="text-[10px] text-amber-400 font-normal">({WEEKEND_NOTE})</span></span>
+                      ) : (
+                        <span className="text-emerald-400">K{hist.collected}</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {hist.isWeekend ? (
+                        <span className="text-slate-400 font-medium">Weekend Off</span>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-white">{hist.rate}%</span>
+                          <div className="w-16 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div
+                              className="bg-amber-400 h-full rounded-full"
+                              style={{ width: `${Math.min(100, hist.rate)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {hist.isWeekend ? (
+                        <span className="text-slate-400">{hist.paidCount > 0 ? `${hist.paidCount} voluntary` : '0 (Weekend)'}</span>
+                      ) : (
+                        <span className="text-emerald-400 font-bold">{hist.paidCount} clients</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {hist.isWeekend ? (
+                        <span className="text-slate-400 font-medium">Nil ({WEEKEND_NOTE})</span>
+                      ) : (
+                        <span className="text-red-400 font-bold">
+                          {shortfall > 0 ? `K${shortfall} (${hist.unpaidCount} unpaid)` : 'Nil (100% Cleared)'}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
@@ -907,19 +1084,29 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Total Expected</div>
-              <div className="text-lg font-black text-white mt-1">K{summaryStats.totalExpected}</div>
+              <div className="text-sm sm:text-base font-black text-white mt-1 break-words">
+                {isWeekendSelected ? WEEKEND_NOTE : `K${summaryStats.totalExpected}`}
+              </div>
             </div>
             <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
               <div className="text-[10px] text-emerald-400 uppercase font-bold">Total Collected</div>
-              <div className="text-lg font-black text-emerald-400 mt-1">K{summaryStats.totalCollected}</div>
+              <div className="text-sm sm:text-base font-black text-emerald-400 mt-1 break-words">
+                {isWeekendSelected && summaryStats.totalCollected === 0
+                  ? WEEKEND_NOTE
+                  : `K${summaryStats.totalCollected}`}
+              </div>
             </div>
             <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
               <div className="text-[10px] text-amber-400 uppercase font-bold">Shortfall / Balance</div>
-              <div className="text-lg font-black text-amber-400 mt-1">K{summaryStats.dayBalance}</div>
+              <div className="text-sm sm:text-base font-black text-amber-400 mt-1 break-words">
+                {isWeekendSelected ? `Nil (${WEEKEND_NOTE})` : `K${summaryStats.dayBalance}`}
+              </div>
             </div>
             <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl text-center">
               <div className="text-[10px] text-slate-400 uppercase font-bold">Collection Rate</div>
-              <div className="text-lg font-black text-white mt-1">{summaryStats.collectionRate}%</div>
+              <div className="text-sm sm:text-base font-black text-white mt-1">
+                {isWeekendSelected ? 'Weekend Off' : `${summaryStats.collectionRate}%`}
+              </div>
             </div>
           </div>
 
@@ -929,18 +1116,27 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
               <span className="text-slate-400">Total Borrowers: </span>
               <strong className="text-white">{summaryStats.totalActiveBorrowers}</strong>
             </div>
-            <div>
-              <span className="text-slate-400">Paid Full: </span>
-              <strong className="text-emerald-400">{summaryStats.fullPaidCount}</strong>
-            </div>
-            <div>
-              <span className="text-slate-400">Partial Paid: </span>
-              <strong className="text-amber-500">{summaryStats.partialPaidCount}</strong>
-            </div>
-            <div>
-              <span className="text-slate-400">Not Paid: </span>
-              <strong className="text-red-400">{summaryStats.unpaidCount}</strong>
-            </div>
+            {isWeekendSelected ? (
+              <div>
+                <span className="text-amber-400 font-bold">{WEEKEND_NOTE}: </span>
+                <span className="text-slate-300">Saturdays and Sundays are non-collection days</span>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <span className="text-slate-400">Paid Full: </span>
+                  <strong className="text-emerald-400">{summaryStats.fullPaidCount}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">Partial Paid: </span>
+                  <strong className="text-amber-500">{summaryStats.partialPaidCount}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">Not Paid: </span>
+                  <strong className="text-red-400">{summaryStats.unpaidCount}</strong>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Client Table */}
@@ -963,10 +1159,14 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                   <td className="py-2 px-2 text-slate-500">{idx + 1}</td>
                   <td className="py-2 px-2 font-bold text-white">{r.client.name}</td>
                   <td className="py-2 px-2 text-slate-300">{r.client.businessType}</td>
-                  <td className="py-2 px-2 text-right font-medium text-slate-200">K{r.expectedDue}</td>
-                  <td className="py-2 px-2 text-right font-bold text-emerald-400">K{r.totalPaidOnDate}</td>
+                  <td className="py-2 px-2 text-right font-medium text-slate-200">
+                    {isWeekendSelected ? '0 (Weekend)' : `K${r.expectedDue}`}
+                  </td>
+                  <td className="py-2 px-2 text-right font-bold text-emerald-400">
+                    {isWeekendSelected && r.totalPaidOnDate === 0 ? WEEKEND_NOTE : `K${r.totalPaidOnDate}`}
+                  </td>
                   <td className="py-2 px-2 text-right font-bold text-amber-500">
-                    {r.balanceRemainingForDay > 0 ? `K${r.balanceRemainingForDay}` : 'K0'}
+                    {isWeekendSelected ? 'K0' : r.balanceRemainingForDay > 0 ? `K${r.balanceRemainingForDay}` : 'K0'}
                   </td>
                   <td className="py-2 px-2 text-center">
                     {r.paymentStatus === 'full' && (
@@ -979,6 +1179,9 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
                     )}
                     {r.paymentStatus === 'unpaid' && (
                       <span className="text-red-400 font-bold">NOT PAID</span>
+                    )}
+                    {r.paymentStatus === 'weekend_off' && (
+                      <span className="text-amber-400 font-bold">{WEEKEND_NOTE}</span>
                     )}
                   </td>
                   <td className="py-2 px-2 text-amber-400 font-medium">
@@ -1008,6 +1211,40 @@ export const RecordKeeping: React.FC<RecordKeepingProps> = ({ clients, currentAg
           </div>
         </div>
       </div>
+
+      {/* Weekly History Modal */}
+      {viewingWeeklyClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-3 sm:p-4">
+          <div className="w-full max-w-4xl lg:max-w-5xl bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-5 sm:p-6 border-b border-slate-800 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Weekly Schedule & Audit History</div>
+                <h3 className="text-xl sm:text-2xl font-black text-white mt-0.5">{viewingWeeklyClient.name}</h3>
+                <p className="text-xs text-slate-400">{viewingWeeklyClient.businessType} • {viewingWeeklyClient.phone} • {viewingWeeklyClient.address}</p>
+              </div>
+              <button
+                onClick={() => setViewingWeeklyClient(null)}
+                className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+              <ClientWeeklyHistoryCard client={viewingWeeklyClient} />
+            </div>
+
+            <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setViewingWeeklyClient(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
